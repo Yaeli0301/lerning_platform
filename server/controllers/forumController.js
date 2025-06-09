@@ -1,6 +1,10 @@
+// New imports
 const Discussion = require('../models/Discussion');
 const Comment = require('../models/Comment');
 const Joi = require('joi');
+const mongoose = require('mongoose');
+const Message = require('../models/Message');
+const User = require('../models/User');
 
 // Validation schemas
 const discussionSchema = Joi.object({
@@ -9,8 +13,18 @@ const discussionSchema = Joi.object({
   lesson: Joi.string().required(),
 });
 
-const Lesson = require('../models/Lesson');
-const Course = require('../models/Course');
+const commentSchema = Joi.object({
+  content: Joi.string().required(),
+  rating: Joi.number().integer().min(1).max(5).required(),
+  discussionId: Joi.string().required(),
+  lessonId: Joi.string().optional(),
+});
+
+// Helper function for error response
+const handleError = (res, err, message = 'שגיאה בשרת', code = 500) => {
+  console.error(message, err);
+  return res.status(code).json({ message, error: err.message });
+};
 
 exports.getLessonsByCourseId = async (req, res) => {
   try {
@@ -23,12 +37,6 @@ exports.getLessonsByCourseId = async (req, res) => {
   } catch (err) {
     return handleError(res, err, 'Error fetching lessons by courseId');
   }
-};
-
-// Helper function for error response
-const handleError = (res, err, message = 'שגיאה בשרת', code = 500) => {
-  console.error(message, err);
-  return res.status(code).json({ message, error: err.message });
 };
 
 exports.createDiscussion = async (req, res) => {
@@ -77,15 +85,6 @@ exports.createDiscussion = async (req, res) => {
     return handleError(res, err, 'Error in createDiscussion');
   }
 };
-
-const commentSchema = Joi.object({
-  content: Joi.string().required(),
-  rating: Joi.number().integer().min(1).max(5).required(),
-  discussionId: Joi.string().required(),
-  lessonId: Joi.string().optional(),
-});
-
-const mongoose = require('mongoose');
 
 exports.getDiscussions = async (req, res) => {
   try {
@@ -305,3 +304,86 @@ exports.blockComment = async (req, res) => {
     return handleError(res, err, 'Error blocking/unblocking comment');
   }
 };
+
+// Get messages by discussion ID
+exports.getMessagesByDiscussionId = async (req, res) => {
+  try {
+    const discussionId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(discussionId)) {
+      return res.status(400).json({ message: 'Invalid discussion ID' });
+    }
+    const messages = await Message.find({ discussionId })
+      .populate('senderId', 'name profilePic')
+      .sort({ createdAt: 1 })
+      .exec();
+    res.json(messages);
+  } catch (err) {
+    return handleError(res, err, 'Error fetching messages by discussion ID');
+  }
+};
+
+// Get users in discussion by discussion ID
+exports.getUsersInDiscussion = async (req, res) => {
+  try {
+    const discussionId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(discussionId)) {
+      return res.status(400).json({ message: 'Invalid discussion ID' });
+    }
+    // Find distinct senderIds from messages in the discussion, including all senders
+    const userIds = await Message.distinct('senderId', { discussionId });
+    // Also include the discussion creator user id
+    const discussion = await Discussion.findById(discussionId).select('user').exec();
+    if (discussion && discussion.user) {
+      userIds.push(discussion.user.toString());
+    }
+    // Remove duplicates
+    const uniqueUserIds = [...new Set(userIds)];
+    const users = await User.find({ _id: { $in: uniqueUserIds } }).select('name profilePicture').exec();
+    res.json(users);
+  } catch (err) {
+    return handleError(res, err, 'Error fetching users in discussion');
+  }
+};
+
+// Post a new message to a discussion
+exports.postMessageToDiscussion = async (req, res) => {
+  try {
+    const discussionId = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(discussionId)) {
+      return res.status(400).json({ message: 'Invalid discussion ID' });
+    }
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ message: 'Unauthorized: User ID missing' });
+    }
+
+    let { text, type } = req.body;
+    let imageUrl = null;
+
+    if (type === 'image' && req.file) {
+      imageUrl = `/uploads/${req.file.filename}`;
+    }
+
+    if (!text && !imageUrl) {
+      return res.status(400).json({ message: 'Message text or image is required' });
+    }
+
+    const newMessage = new Message({
+      discussionId,
+      senderId: userId,
+      text: text || '',
+      type: type || 'text',
+      imageUrl,
+    });
+
+    await newMessage.save();
+
+    const io = req.app.get('io');
+    io.emit('messageCreated', newMessage);
+
+    res.status(201).json({ message: 'Message sent successfully', newMessage });
+  } catch (err) {
+    return handleError(res, err, 'Error posting message to discussion');
+  }
+};
+
