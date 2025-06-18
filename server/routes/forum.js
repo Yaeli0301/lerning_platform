@@ -12,7 +12,7 @@ router.get('/lessons/:courseId', forumController.getLessonsByCourseId);
 
 // Authenticated routes
 router.post('/discussions', authenticate, forumController.createDiscussion);
-router.post('/discussions/:id/comments', authenticate, forumController.addComment);
+router.post('/comments/:id', authenticate, upload.array('images', 5), forumController.addComment);
 
 // New message and users routes
 router.get('/discussions/:id/messages', authenticate, forumController.getMessagesByDiscussionId);
@@ -21,5 +21,7 @@ router.post('/discussions/:id/messages', authenticate, upload.single('image'), f
 
 // Admin routes
 router.delete('/comments/:id', authenticate, isAdmin, forumController.deleteComment);
+router.post('/comments/:id/block', authenticate, isAdmin, forumController.blockComment);
+router.post('/discussions/:id/block', authenticate, isAdmin, forumController.blockDiscussion);
 
 module.exports = router;

@@ -5,9 +5,10 @@ import CloseIcon from '@mui/icons-material/Close';
 import { AuthContext } from '../context/AuthContext';
 import axios from 'axios';
 import QuizEditor from '../components/QuizEditor';
+import { useLocation } from 'react-router-dom';
 
 // Create axios instance
-export const axiosInstance = axios.create({
+const axiosInstance = axios.create({
   baseURL: 'http://localhost:5000',
 });
 
@@ -26,17 +27,12 @@ axiosInstance.interceptors.request.use(
 );
 
 const AdminDashboard = () => {
-  const { user, token } = useContext(AuthContext);
+  const { token } = useContext(AuthContext);
+  const location = useLocation();
 
-  // Debug logs for token and user
-  useEffect(() => {
-    console.log('Auth token:', token);
-    console.log('User info:', user);
-  }, [token, user]);
-
+  // State declarations
   const [users, setUsers] = useState([]);
   const [courses, setCourses] = useState([]);
-  const [selectedCourse, setSelectedCourse] = useState(null);
   const [newCourse, setNewCourse] = useState({
     title: '',
     description: '',
@@ -50,20 +46,46 @@ const AdminDashboard = () => {
     verbalExplanation: '',
     quizzes: [],
   });
-
+  const [selectedCourse, setSelectedCourse] = useState(null);
   const [showLessonForm, setShowLessonForm] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+  const [error, setError] = useState(null);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
 
+  // Set token header dynamically for each request
+  useEffect(() => {
+    if (axiosInstance && axiosInstance.defaults && axiosInstance.defaults.headers && axiosInstance.defaults.headers.common) {
+      axiosInstance.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+  }, [token]);
+
+  // Fetch users and courses on mount
   useEffect(() => {
     fetchUsers();
     fetchCourses();
   }, []);
 
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
+  // Set selectedCourse if editCourseId query param is present and scroll to edit section
+  useEffect(() => {
+    if (courses.length > 0) {
+      const params = new URLSearchParams(location.search);
+      const editCourseId = params.get('editCourseId');
+      if (editCourseId) {
+        const courseToEdit = courses.find(c => c._id === editCourseId);
+        if (courseToEdit) {
+          setSelectedCourse(courseToEdit);
+          // Scroll to edit course section after a short delay to ensure rendering
+          setTimeout(() => {
+            const editSection = document.getElementById('edit-course-section');
+            if (editSection) {
+              editSection.scrollIntoView({ behavior: 'smooth' });
+            }
+          }, 300);
+        }
+      }
+    }
+  }, [courses, location.search]);
 
   const fetchUsers = async () => {
-    setLoading(true);
     setError(null);
     try {
       const res = await axiosInstance.get('/api/admin/users');
@@ -71,48 +93,37 @@ const AdminDashboard = () => {
     } catch (err) {
       console.error(err);
       setError('Failed to fetch users.');
-      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-        setSnackbar({ open: true, message: 'Unauthorized or forbidden. Please check your login.', severity: 'error' });
-        // Logout user on auth error
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('user');
-          localStorage.removeItem('token');
-          window.location.reload();
-        }
-      }
-    } finally {
-      setLoading(false);
     }
   };
 
-const fetchCourses = async () => {
-    setLoading(true);
+  const fetchCourses = async () => {
     setError(null);
     try {
-      if (!user) return;
       const res = await axiosInstance.get('/api/courses');
-      // Filter courses by instructor (logged-in admin)
-      const filteredCourses = res.data.filter(course => {
-        const instructorId = course.instructor?._id || course.instructor;
-        const userId = user._id || user.id;
-        return instructorId === userId;
-      });
-      setCourses(filteredCourses);
+      setCourses(res.data);
     } catch (err) {
       console.error(err);
       setError('Failed to fetch courses.');
-      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-        setSnackbar({ open: true, message: 'Unauthorized or forbidden. Please check your login.', severity: 'error' });
-        // Logout user on auth error
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('user');
-          localStorage.removeItem('token');
-          window.location.reload();
-        }
-      }
-    } finally {
-      setLoading(false);
     }
+  };
+
+  const toggleLessonForm = () => {
+    setShowLessonForm(prev => !prev);
+  };
+
+  const handleNewCourseChange = (field, value) => {
+    setNewCourse(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleNewLessonChange = (field, value) => {
+    setNewLesson(prev => ({ ...prev, [field]: value }));
+  };
+
+  const addLessonToNewCourse = () => {
+    if (!newLesson.title) return;
+    const lessonWithContent = { ...newLesson, content: newLesson.verbalExplanation || '' };
+    setNewCourse(prev => ({ ...prev, lessons: [...(prev.lessons || []), lessonWithContent] }));
+    setNewLesson({ title: '', videoUrl: '', verbalExplanation: '', quizzes: [] });
   };
 
   const handleBlockToggle = async (user) => {
@@ -128,45 +139,14 @@ const fetchCourses = async () => {
     }
   };
 
-  const handleNewCourseChange = (field, value) => {
-    setNewCourse(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleNewLessonChange = (field, value) => {
-    setNewLesson(prev => ({ ...prev, [field]: value }));
-  };
-
-  const toggleLessonForm = () => {
-    setShowLessonForm(prev => !prev);
-  };
-
-  const addLessonToNewCourse = () => {
-    if (!newLesson.title) {
-      setSnackbar({ open: true, message: 'Please enter a lesson title.', severity: 'warning' });
-      return;
-    }
-    // Ensure quizzes array is properly set
-    const lessonToAdd = {
-      ...newLesson,
-      quizzes: newLesson.quizzes && newLesson.quizzes.length > 0 ? newLesson.quizzes : [],
-    };
-    setNewCourse(prev => ({ ...prev, lessons: [...prev.lessons, lessonToAdd] }));
-    setNewLesson({ title: '', videoUrl: '', verbalExplanation: '', quizzes: [] });
-    setShowLessonForm(false);
-    setSnackbar({ open: true, message: 'Lesson added to course.', severity: 'success' });
-  };
-
   const handleAddCourse = async () => {
     setError(null);
-    const { title, description, category } = newCourse;
-    if (!title || !description || !category) {
-      setSnackbar({ open: true, message: 'Please fill all required course fields.', severity: 'warning' });
+    if (!newCourse.title) {
+      setError('Course title is required.');
       return;
     }
     try {
-      console.log('Sending POST /api/courses with token:', localStorage.getItem('token'));
-      const response = await axiosInstance.post('/api/courses', newCourse);
-      console.log('POST /api/courses response:', response);
+      await axiosInstance.post('/api/courses', newCourse);
       setNewCourse({
         title: '',
         description: '',
@@ -174,146 +154,10 @@ const fetchCourses = async () => {
         difficultyLevel: 'Beginner',
         lessons: [],
       });
-      setSnackbar({ open: true, message: 'Course created successfully.', severity: 'success' });
-      fetchCourses();
-    } catch (err) {
-      console.error('Error in POST /api/courses:', err);
-      setError('Failed to add course.');
-      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-        setSnackbar({ open: true, message: 'Unauthorized or forbidden. Please check your login.', severity: 'error' });
-        // Logout user on auth error
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('user');
-          localStorage.removeItem('token');
-          window.location.reload();
-        }
-      } else {
-        setSnackbar({ open: true, message: 'Failed to add course.', severity: 'error' });
-      }
-    }
-  };
-
-  const handleUpdateCourse = async () => {
-    setError(null);
-    if (!selectedCourse) return;
-    try {
-      // Prepare course data to avoid sending unwanted fields
-      const courseData = { ...selectedCourse };
-      // Remove any fields that should not be sent to backend if needed
-      // For example, remove _id from lessons if present
-      if (courseData.lessons) {
-        courseData.lessons = courseData.lessons.map(lesson => {
-          const { _id, ...rest } = lesson;
-          return rest;
-        });
-      }
-      await axiosInstance.put(`/api/courses/${selectedCourse._id}`, courseData);
-      setSnackbar({ open: true, message: 'Course updated successfully.', severity: 'success' });
-      setSelectedCourse(null); // Close editing form on success
       fetchCourses();
     } catch (err) {
       console.error(err);
-      setError('Failed to update course.');
-      setSnackbar({ open: true, message: 'Failed to update course.', severity: 'error' });
-    }
-  };
-=======
-  const handleAddCourse = async () => {
-    setError(null);
-    const { title, description, category } = newCourse;
-    if (!title || !description || !category) {
-      setSnackbar({ open: true, message: 'Please fill all required course fields.', severity: 'warning' });
-      return;
-    }
-    try {
-      console.log('Sending POST /api/courses with token:', localStorage.getItem('token'));
-      const response = await axiosInstance.post('/api/courses', newCourse);
-      console.log('POST /api/courses response:', response);
-      setNewCourse({
-        title: '',
-        description: '',
-        category: '',
-        difficultyLevel: 'Beginner',
-        lessons: [],
-      });
-      setSnackbar({ open: true, message: 'Course created successfully.', severity: 'success' });
-      fetchCourses();
-    } catch (err) {
-      console.error('Error in POST /api/courses:', err);
       setError('Failed to add course.');
-      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-        setSnackbar({ open: true, message: 'Unauthorized or forbidden. Please check your login.', severity: 'error' });
-        // Logout user on auth error
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('user');
-          localStorage.removeItem('token');
-          window.location.reload();
-        }
-      } else {
-        setSnackbar({ open: true, message: 'Failed to add course.', severity: 'error' });
-      }
-    }
-  };
-
-  const handleUpdateCourse = async () => {
-    setError(null);
-    if (!selectedCourse) return;
-    try {
-      // Prepare course data to avoid sending unwanted fields
-      const courseData = { ...selectedCourse };
-      // Remove any fields that should not be sent to backend if needed
-      // For example, remove _id from lessons if present
-      if (courseData.lessons) {
-        courseData.lessons = courseData.lessons.map(lesson => {
-          const { _id, ...rest } = lesson;
-          return rest;
-        });
-      }
-      await axiosInstance.put(`/api/courses/${selectedCourse._id}`, courseData);
-      setSnackbar({ open: true, message: 'Course updated successfully.', severity: 'success' });
-      setSelectedCourse(null); // Close editing form on success
-      fetchCourses();
-    } catch (err) {
-      console.error(err);
-      setError('Failed to update course.');
-      setSnackbar({ open: true, message: 'Failed to update course.', severity: 'error' });
-    }
-  };
-
-  const handleAddCourse = async () => {
-    setError(null);
-    const { title, description, category } = newCourse;
-    if (!title || !description || !category) {
-      setSnackbar({ open: true, message: 'Please fill all required course fields.', severity: 'warning' });
-      return;
-    }
-    try {
-      console.log('Sending POST /api/courses with token:', localStorage.getItem('token'));
-      const response = await axiosInstance.post('/api/courses', newCourse);
-      console.log('POST /api/courses response:', response);
-      setNewCourse({
-        title: '',
-        description: '',
-        category: '',
-        difficultyLevel: 'Beginner',
-        lessons: [],
-      });
-      setSnackbar({ open: true, message: 'Course created successfully.', severity: 'success' });
-      fetchCourses();
-    } catch (err) {
-      console.error('Error in POST /api/courses:', err);
-      setError('Failed to add course.');
-      if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-        setSnackbar({ open: true, message: 'Unauthorized or forbidden. Please check your login.', severity: 'error' });
-        // Logout user on auth error
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('user');
-          localStorage.removeItem('token');
-          window.location.reload();
-        }
-      } else {
-        setSnackbar({ open: true, message: 'Failed to add course.', severity: 'error' });
-      }
     }
   };
 
@@ -324,11 +168,14 @@ const fetchCourses = async () => {
   const handleDeleteCourse = async (courseId) => {
     setError(null);
     try {
-      await axiosInstance.delete(`/api/courses/${courseId}`);
+      await axiosInstance.put(`/api/courses/${courseId}/deactivate`);
       if (selectedCourse && selectedCourse._id === courseId) {
         setSelectedCourse(null);
       }
-      fetchCourses();
+      // After deactivation, fetch courses and filter out deactivated ones
+      const res = await axiosInstance.get('/api/courses');
+      const activeCourses = res.data.filter(course => !course.isDeactivated);
+      setCourses(activeCourses);
     } catch (err) {
       console.error(err);
       setError('Failed to delete course.');
@@ -339,19 +186,19 @@ const fetchCourses = async () => {
     setError(null);
     if (!selectedCourse) return;
     try {
-      // Prepare course data to avoid sending unwanted fields
       const courseData = { ...selectedCourse };
-      // Remove any fields that should not be sent to backend if needed
-      // For example, remove _id from lessons if present
       if (courseData.lessons) {
         courseData.lessons = courseData.lessons.map(lesson => {
           const { _id, ...rest } = lesson;
+          if (!rest.content) {
+            rest.content = rest.verbalExplanation || '';
+          }
           return rest;
         });
       }
       await axiosInstance.put(`/api/courses/${selectedCourse._id}`, courseData);
       setSnackbar({ open: true, message: 'Course updated successfully.', severity: 'success' });
-      setSelectedCourse(null); // Close editing form on success
+      setSelectedCourse(null);
       fetchCourses();
     } catch (err) {
       console.error(err);
@@ -366,7 +213,8 @@ const fetchCourses = async () => {
 
   const addLessonToSelectedCourse = () => {
     if (!newLesson.title) return;
-    setSelectedCourse(prev => ({ ...prev, lessons: [...(prev.lessons || []), newLesson] }));
+    const lessonWithContent = { ...newLesson, content: newLesson.verbalExplanation || '' };
+    setSelectedCourse(prev => ({ ...prev, lessons: [...(prev.lessons || []), lessonWithContent] }));
     setNewLesson({ title: '', videoUrl: '', verbalExplanation: '', quizzes: [] });
   };
 
@@ -386,11 +234,11 @@ const fetchCourses = async () => {
           <ListItem key={user._id} divider>
             <ListItemText
               primary={`${user.name} (${user.email})`}
-            secondary={`תפקיד: ${user.role} | חסום: ${user.isBlocked ? 'כן' : 'לא'}`}
-          />
-          <Button variant="outlined" onClick={() => handleBlockToggle(user)}>
-            {user.isBlocked ? 'שחרר חסימה' : 'חסום משתמש'}
-          </Button>
+              secondary={`תפקיד: ${user.role} | חסום: ${user.isBlocked ? 'כן' : 'לא'}`}
+            />
+            <Button variant="outlined" onClick={() => handleBlockToggle(user)}>
+              {user.isBlocked ? 'שחרר חסימה' : 'חסום משתמש'}
+            </Button>
           </ListItem>
         ))}
       </List>
@@ -504,7 +352,7 @@ const fetchCourses = async () => {
       </List>
 
       {selectedCourse && (
-        <Box sx={{ mt: 4, maxWidth: 600 }}>
+        <Box id="edit-course-section" sx={{ mt: 4, maxWidth: 600 }}>
           <Typography variant="h6" gutterBottom>ערוך קורס</Typography>
           <TextField
             label="שם הקורס"
@@ -688,7 +536,7 @@ const ForumManagement = () => {
   const handleBlockToggle = async (discussion) => {
     setError(null);
     try {
-      await axiosInstance.put(`/api/admin/discussions/${discussion._id}/block`, {
+      await axiosInstance.post(`/api/forum/discussions/${discussion._id}/block`, {
         blocked: !discussion.isBlocked,
       });
       fetchDiscussions();
@@ -701,7 +549,7 @@ const ForumManagement = () => {
   return (
     <List>
       {discussions.map(discussion => (
-        <ListItem key={discussion._id} divider sx={{ opacity: discussion.isBlocked ? 0.5 : 1 }} button={false}>
+        <ListItem key={discussion._id} divider sx={{ opacity: discussion.isBlocked ? 0.5 : 1 }}>
           <ListItemText
             primary={discussion.title}
             secondary={`יוצר: ${discussion.creatorUsername} | חסום: ${discussion.isBlocked ? 'כן' : 'לא'}`}

@@ -24,7 +24,7 @@ const mongoose = require('mongoose');
 // Get all active courses, optionally filtered by instructor, category, difficultyLevel, search, with pagination
 exports.getCourses = async (req, res) => {
   try {
-    const filter = { isActive: { $ne: false } };
+    const filter = {};
     if (req.query.instructor) {
       filter.instructor = req.query.instructor;
     }
@@ -257,6 +257,12 @@ exports.deleteCourse = async (req, res) => {
 
     course.isActive = false;
     await course.save();
+
+    // Remove course from enrolledCourses array of all users
+    await User.updateMany(
+      { enrolledCourses: courseId },
+      { $pull: { enrolledCourses: courseId } }
+    );
 
     const io = req.app.get('io');
     io.emit('courseDeleted', { courseId });

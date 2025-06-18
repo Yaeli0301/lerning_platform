@@ -10,6 +10,7 @@ const courseSchema = new mongoose.Schema({
   difficultyLevel: { type: String, enum: ['Beginner', 'Intermediate', 'Advanced'], required: true },
   rating: { type: Number, default: 0 },
   isBlocked: { type: Boolean, default: false },
+  isActive: { type: Boolean, default: true },
   imageUrl: { type: String, default: 'https://example.com/default-course-image.jpg' },
 }, { timestamps: true });
 

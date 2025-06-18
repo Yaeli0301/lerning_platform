@@ -7,7 +7,5 @@ const { authenticate, isAdmin } = require('../middleware/authMiddleware');
 router.use(authenticate);
 router.get('/users', isAdmin, adminController.getUsers);
 router.put('/users/:id/block', isAdmin, adminController.blockUser);
-const forumController = require('../controllers/forumController');
-router.put('/discussions/:id/block', isAdmin, forumController.blockDiscussion);
 
 module.exports = router;

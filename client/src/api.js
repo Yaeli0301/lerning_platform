@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api', // Adjust base URL as needed
+  baseURL: 'http://localhost:5000/api', // Updated base URL to backend server
   headers: {
     'Content-Type': 'application/json',
   },
@@ -10,7 +10,7 @@ const api = axios.create({
 // Add a request interceptor to include auth token if available
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('authToken');
+    const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -55,13 +55,20 @@ export const uploadCourseVideo = (formData) =>
   });
 
 // Forum API
-export const getDiscussions = () => api.get('/forum/discussions');
+export const getDiscussions = (params) => api.get('/forum/discussions', { params });
 export const getDiscussionById = (id) => api.get(`/forum/discussions/${id}`);
-export const getCommentsByCourseId = () => api.get('/forum/comments');
+export const getCommentsByCourseId = (courseId) => api.get(`/forum/comments?courseId=${courseId}`);
+// Note: Backend does not support get comments by discussionId endpoint as /forum/comments?discussionId=...
+// The correct endpoint to get comments by discussionId is not implemented in backend routes.
+// So, for now, comments should be fetched by courseId or discussionId via discussions API.
 export const getLessonsByCourseId = (courseId) => api.get(`/forum/lessons/${courseId}`);
 export const createDiscussion = (data) => api.post('/forum/discussions', data);
 export const addComment = (discussionId, data) =>
-  api.post(`/forum/discussions/${discussionId}/comments`, data);
+  api.post(`/forum/comments/${discussionId}`, data);
+
+// Removed addCommentToCourse as it is not supported by backend
+// export const addCommentToCourse = (courseId, data) =>
+//   api.post(`/forum/courses/${courseId}/comments`, data);
 export const deleteComment = (id) => api.delete(`/forum/comments/${id}`);
 
 // Update comment

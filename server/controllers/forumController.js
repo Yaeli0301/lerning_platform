@@ -162,11 +162,18 @@ exports.addComment = async (req, res) => {
       return res.status(401).json({ message: 'Unauthorized: User ID missing' });
     }
 
+    // Handle image upload
+    let images = [];
+    if (req.files && req.files.length > 0) {
+      images = req.files.map(file => `/uploads/${file.filename}`);
+    }
+
     const newComment = new Comment({
       user: userId,
       lesson: value.lessonId || null,
       content: value.content,
       rating: value.rating,
+      images: images, // Save image URLs to the comment
     });
 
     await newComment.save();
@@ -190,41 +197,28 @@ exports.addComment = async (req, res) => {
 
 exports.deleteComment = async (req, res) => {
   try {
-    const deletedComment = await Comment.findByIdAndDelete(req.params.id);
-    if (!deletedComment) return res.status(404).json({ message: 'תגובה לא נמצאה' });
+    const commentId = req.params.id;
+    const comment = await Comment.findById(commentId);
+    if (!comment) return res.status(404).json({ message: 'תגובה לא נמצאה' });
+
+    // Only the comment owner or an admin can delete the comment
+    if (req.user.id !== comment.user.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Forbidden: Not authorized to delete this comment' });
+    }
+
+    await Comment.findByIdAndDelete(commentId);
 
     await Discussion.updateMany(
-      { responses: req.params.id },
-      { $pull: { responses: req.params.id } }
+      { responses: commentId },
+      { $pull: { responses: commentId } }
     );
 
     const io = req.app.get('io');
-    io.emit('commentDeleted', { commentId: req.params.id });
+    io.emit('commentDeleted', { commentId });
 
     res.json({ message: 'תגובה נמחקה בהצלחה' });
   } catch (err) {
     return handleError(res, err, 'Error deleting comment');
-  }
-};
-
-exports.getCommentsByCourseId = async (req, res) => {
-  try {
-    const courseId = req.query.courseId;
-    if (!courseId) return res.status(400).json({ message: 'Missing courseId query parameter' });
-
-    const discussions = await Discussion.find({ course: courseId }).select('_id').exec();
-    const discussionIds = discussions.map(d => d._id);
-
-    const comments = await Comment.find({
-      $or: [
-        { discussion: { $in: discussionIds } },
-        { course: courseId }
-      ]
-    }).populate('user', 'name').exec();
-
-    res.json(comments);
-  } catch (err) {
-    return handleError(res, err, 'Error fetching comments by courseId');
   }
 };
 
@@ -246,6 +240,41 @@ exports.blockDiscussion = async (req, res) => {
     return handleError(res, err, 'Error blocking/unblocking discussion');
   }
 };
+
+exports.getCommentsByCourseId = async (req, res) => {
+  try {
+    const courseId = req.query.courseId;
+    if (!courseId) return res.status(400).json({ message: 'Missing courseId query parameter' });
+
+    // Find comments directly associated with the course or in discussions related to the course
+    const comments = await Comment.find({ course: courseId })
+      .populate('user', 'name')
+      .exec();
+
+    res.json(comments);
+  } catch (err) {
+    return handleError(res, err, 'Error fetching comments by courseId');
+  }
+};
+
+// exports.blockDiscussion = async (req, res) => {
+//   try {
+//     const discussionId = req.params.id;
+//     const { blocked } = req.body;
+//     if (typeof blocked !== 'boolean') {
+//       return res.status(400).json({ message: 'Invalid blocked value' });
+//     }
+//     const discussion = await Discussion.findById(discussionId);
+//     if (!discussion) {
+//       return res.status(404).json({ message: 'Discussion not found' });
+//     }
+//     discussion.isBlocked = blocked;
+//     await discussion.save();
+//     res.json({ message: `Discussion ${blocked ? 'blocked' : 'unblocked'} successfully`, discussion });
+//   } catch (err) {
+//     return handleError(res, err, 'Error blocking/unblocking discussion');
+//   }
+// };
 
 exports.editComment = async (req, res) => {
   try {
@@ -281,25 +310,23 @@ exports.editComment = async (req, res) => {
 exports.blockComment = async (req, res) => {
   try {
     const commentId = req.params.id;
-    const { blocked } = req.body;
-    if (typeof blocked !== 'boolean') {
-      return res.status(400).json({ message: 'Invalid blocked value' });
-    }
     const comment = await Comment.findById(commentId);
     if (!comment) {
       return res.status(404).json({ message: 'Comment not found' });
     }
+
     // Only admin can block comments
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Forbidden: Not authorized to block comments' });
     }
-    comment.isBlocked = blocked;
+
+    comment.isBlocked = !comment.isBlocked; // Toggle the isBlocked status
     await comment.save();
 
     const io = req.app.get('io');
-    io.emit('commentBlocked', { commentId, blocked });
+    io.emit('commentBlocked', { commentId, blocked: comment.isBlocked });
 
-    res.json({ message: `Comment ${blocked ? 'blocked' : 'unblocked'} successfully`, comment });
+    res.json({ message: `Comment ${comment.isBlocked ? 'blocked' : 'unblocked'} successfully`, comment });
   } catch (err) {
     return handleError(res, err, 'Error blocking/unblocking comment');
   }
@@ -386,4 +413,3 @@ exports.postMessageToDiscussion = async (req, res) => {
     return handleError(res, err, 'Error posting message to discussion');
   }
 };
-

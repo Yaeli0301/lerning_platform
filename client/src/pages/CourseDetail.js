@@ -12,6 +12,9 @@ import {
   Button,
   Paper,
   LinearProgress,
+  Card,
+  CardMedia,
+  CardContent,
 } from '@mui/material';
 import { AuthContext } from '../context/AuthContext';
 import {
@@ -27,6 +30,9 @@ import {
   uploadCourseImage,
   submitLessonRequest,
   enrollCourse,
+  updateCourse,
+  getDiscussions,
+  createDiscussion,
 } from '../api';
 import Quiz from '../components/Quiz';
 
@@ -44,7 +50,6 @@ const CourseDetail = () => {
     videoUrl: '',
     imageUrl: '',
   });
-  const [uploadingImage, setUploadingImage] = useState(false);
   const [commentRating, setCommentRating] = useState(0);
   const [editingCommentId, setEditingCommentId] = useState(null);
   const [editingCommentContent, setEditingCommentContent] = useState('');
@@ -55,6 +60,16 @@ const CourseDetail = () => {
   const [enrolled, setEnrolled] = useState(false);
   const [progress, setProgress] = useState({});
   const [savingProgress, setSavingProgress] = useState(false);
+  const [discussionId, setDiscussionId] = useState(null);
+  const [commentError, setCommentError] = useState('');
+  const [commentSuccess, setCommentSuccess] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editDifficultyLevel, setEditDifficultyLevel] = useState('');
+  const [editImageUrl, setEditImageUrl] = useState('');
 
   useEffect(() => {
     fetchCourse();
@@ -64,11 +79,17 @@ const CourseDetail = () => {
   }, [id, user]);
 
   useEffect(() => {
-    if (selectedLesson && enrolled) {
-      saveProgress(selectedLesson._id);
-      fetchComments();
+    if (course && user) {
+      fetchOrCreateDiscussion();
     }
-  }, [selectedLesson, enrolled]);
+  }, [course, user]);
+
+  useEffect(() => {
+    if (selectedLesson && enrolled && course) {
+      saveProgress(selectedLesson._id);
+      fetchComments(discussionId);
+    }
+  }, [selectedLesson, enrolled, course, discussionId]);
 
   const fetchCourse = async () => {
     setLoading(true);
@@ -109,35 +130,68 @@ const CourseDetail = () => {
     }
   };
 
-  const fetchComments = async () => {
+  const fetchOrCreateDiscussion = async () => {
     try {
-      const res = await getCommentsByCourseId(id);
+      const res = await getDiscussions({ course: course._id });
+      if (res.data.length > 0) {
+        setDiscussionId(res.data[0]._id);
+        fetchComments(res.data[0]._id);
+      } else {
+        const createRes = await createDiscussion({
+          title: `Discussion for course ${course.title}`,
+          course: course._id,
+          lesson: course.lessons.length > 0 ? course.lessons[0]._id : null,
+        });
+        setDiscussionId(createRes.data.discussion._id);
+        fetchComments(createRes.data.discussion._id);
+      }
+    } catch (err) {
+      console.error('Error fetching or creating discussion:', err);
+    }
+  };
+
+  const fetchComments = async (discussionIdParam) => {
+    try {
+      const res = await getCommentsByCourseId(discussionIdParam);
       setComments(res.data);
-      const blockedSet = new Set(res.data.filter(c => c.blocked).map(c => c._id));
+      const blockedSet = new Set(res.data.filter(c => c.isBlocked).map(c => c._id));
       setBlockedComments(blockedSet);
     } catch (err) {
       console.error(err);
     }
   };
 
-  const handleLessonSelect = (lesson) => {
-    setSelectedLesson(lesson);
-  };
-
   const handleCommentSubmit = async () => {
-    if (!comment.trim()) return;
+    if (!comment.trim()) {
+      setCommentError('אנא הזן תוכן תגובה לפני השליחה.');
+      setCommentSuccess('');
+      return;
+    }
+    if (!user) {
+      setCommentError('עליך להיות מחובר כדי להוסיף תגובה.');
+      setCommentSuccess('');
+      return;
+    }
+    if (!discussionId) {
+      setCommentError('אין דיון זמין להוספת תגובה.');
+      setCommentSuccess('');
+      return;
+    }
     try {
-      await addComment(null, {
-        courseId: id,
+      await addComment(discussionId, {
         content: comment,
         rating: commentRating,
         userId: user?.id,
       });
       setComment('');
       setCommentRating(0);
-      fetchComments();
+      setCommentError('');
+      setCommentSuccess('התגובה נשלחה בהצלחה.');
+      fetchComments(discussionId);
     } catch (err) {
       console.error(err);
+      setCommentError('שגיאה בשליחת התגובה. נסה שוב מאוחר יותר.');
+      setCommentSuccess('');
     }
   };
 
@@ -154,7 +208,7 @@ const CourseDetail = () => {
         rating: editingCommentRating,
       });
       setEditingCommentId(null);
-      fetchComments();
+      fetchComments(discussionId);
     } catch (err) {
       console.error(err);
     }
@@ -163,7 +217,7 @@ const CourseDetail = () => {
   const handleDeleteComment = async (commentId) => {
     try {
       await deleteComment(commentId);
-      fetchComments();
+      fetchComments(discussionId);
     } catch (err) {
       console.error(err);
     }
@@ -172,7 +226,7 @@ const CourseDetail = () => {
   const handleBlockComment = async (commentId) => {
     try {
       await blockComment(commentId);
-      fetchComments();
+      fetchComments(discussionId);
     } catch (err) {
       console.error(err);
     }
@@ -181,7 +235,7 @@ const CourseDetail = () => {
   const handleUnblockComment = async (commentId) => {
     try {
       await unblockComment(commentId);
-      fetchComments();
+      fetchComments(discussionId);
     } catch (err) {
       console.error(err);
     }
@@ -238,7 +292,7 @@ const CourseDetail = () => {
     try {
       await enrollCourse(id);
       setEnrolled(true);
-      checkEnrollment();
+      await checkEnrollment();
     } catch (err) {
       console.error(err);
     }
@@ -248,24 +302,46 @@ const CourseDetail = () => {
 
   return (
     <Container sx={{ mt: 4, mb: 4 }}>
-      <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2' }}>{course.title}</Typography>
-      <Typography variant="subtitle1" gutterBottom sx={{ color: '#555' }}>{course.description}</Typography>
-      <Typography variant="body2" gutterBottom sx={{ color: '#777' }}>מרצה: {course.instructor?.name || 'לא זמין'}</Typography>
-      {!enrolled && user && (
-        <Button variant="contained" color="primary" sx={{ mb: 2 }} onClick={handleEnroll}>
-          הרשמה לקורס
-        </Button>
-      )}
+      <Card elevation={3} sx={{ mb: 3 }}>
+        <CardMedia
+          component="img"
+          height="200"
+          image={course.imageUrl || '/logo192.png'}
+          alt={course.title}
+        />
+        <CardContent>
+          <Typography variant="h4" gutterBottom sx={{ fontWeight: 'bold', color: '#1976d2' }}>{course.title}</Typography>
+          <Typography variant="subtitle1" gutterBottom sx={{ color: '#555' }}>{course.description}</Typography>
+          <Typography variant="body2" gutterBottom sx={{ color: '#777' }}>מרצה: {course.instructor?.name || 'לא זמין'}</Typography>
+          {!enrolled && user && (
+            <Button variant="contained" color="primary" sx={{ mb: 2 }} onClick={handleEnroll}>
+              הרשמה לקורס
+            </Button>
+          )}
+          {user && user.role === 'admin' && (
+            <Button variant="outlined" color="primary" onClick={() => {
+              setIsEditMode(true);
+              setEditTitle(course.title);
+              setEditDescription(course.description);
+              setEditCategory(course.category);
+              setEditDifficultyLevel(course.difficultyLevel);
+              setEditImageUrl(course.imageUrl);
+            }}>
+              ערוך קורס
+            </Button>
+          )}
+        </CardContent>
+      </Card>
       <Box sx={{ display: 'flex', mt: 4, gap: 3 }}>
         <Paper elevation={3} sx={{ width: '25%', p: 2, bgcolor: '#e3f2fd', borderRadius: 2, maxHeight: '70vh', overflowY: 'auto' }}>
           <Typography variant="h6" sx={{ mb: 2, fontWeight: 'bold', color: '#0d47a1' }}>שיעורים</Typography>
           <List>
             {course.lessons.map(lesson => (
               <ListItem
-                button
                 key={lesson._id}
-                onClick={() => handleLessonSelect(lesson)}
+                onClick={() => enrolled ? setSelectedLesson(lesson) : null}
                 selected={selectedLesson?._id === lesson._id}
+                disabled={!enrolled}
                 sx={{
                   borderRadius: 1,
                   mb: 1,
@@ -274,6 +350,9 @@ const CourseDetail = () => {
                   '&:hover': {
                     bgcolor: '#1976d2',
                     color: '#fff',
+                  },
+                  '&.Mui-disabled': {
+                    opacity: 0.5,
                   },
                 }}
               >
@@ -298,7 +377,7 @@ const CourseDetail = () => {
               )}
               <Typography variant="body1" sx={{ mt: 2, color: '#333', lineHeight: 1.6 }}>{selectedLesson.content}</Typography>
               <Box sx={{ mt: 3 }}>
-                <Quiz quiz={selectedLesson.quiz} />
+                <Quiz questions={selectedLesson.quiz} />
               </Box>
               <Divider sx={{ my: 3 }} />
               <Typography variant="h6" sx={{ fontWeight: 'bold', color: '#0d47a1', mb: 2 }}>תגובות על הקורס</Typography>
@@ -390,6 +469,8 @@ const CourseDetail = () => {
                 sx={{ mb: 1 }}
                 disabled={!user}
               />
+              {commentError && <Typography color="error" sx={{ mb: 1 }}>{commentError}</Typography>}
+              {commentSuccess && <Typography color="success.main" sx={{ mb: 1 }}>{commentSuccess}</Typography>}
               <Button variant="contained" sx={{ backgroundColor: '#388e3c', '&:hover': { backgroundColor: '#2e7d32' } }} onClick={handleCommentSubmit} disabled={!user}>שלח תגובה</Button>
             </>
           )}

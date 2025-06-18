@@ -12,6 +12,8 @@ import {
   List,
   ListItem,
   ListItemText,
+  Button,
+  CircularProgress as MuiCircularProgress,
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
@@ -24,6 +26,7 @@ import {
   getUserDiscussions,
   getUserEnrolledCourses,
   getUsers,
+  uploadProfilePictureUser,
 } from '../api';
 
 const Profile = () => {
@@ -42,6 +45,8 @@ const Profile = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   useEffect(() => {
     if (!user) {
@@ -65,6 +70,33 @@ const Profile = () => {
       email: user.email || '',
       profilePicture: user.profilePicture || '',
     });
+  };
+
+  const handleProfilePictureChange = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setUploading(true);
+    setUploadError('');
+    try {
+      const formData = new FormData();
+      formData.append('profilePicture', file);
+
+      const response = await uploadProfilePictureUser(user.id, formData);
+      const updatedUser = response.data.user;
+
+      setProfileData((prev) => ({
+        ...prev,
+        profilePicture: updatedUser.profilePicture,
+      }));
+
+      setUser(updatedUser);
+    } catch (error) {
+      console.error('Error uploading profile picture:', error);
+      setUploadError('שגיאה בהעלאת תמונת הפרופיל');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const fetchOtherUserProfile = async () => {
@@ -198,6 +230,31 @@ const Profile = () => {
               </IconButton>
             )}
           </Box>
+          <Box sx={{ ml: 2 }}>
+            <input
+              accept="image/*"
+              style={{ display: 'none' }}
+              id="profile-picture-upload"
+              type="file"
+              onChange={handleProfilePictureChange}
+              disabled={uploading || !editMode}
+            />
+            <label htmlFor="profile-picture-upload">
+              <Button
+                variant="outlined"
+                component="span"
+                disabled={uploading || !editMode}
+                aria-label="upload profile picture"
+              >
+                {uploading ? <MuiCircularProgress size={24} /> : 'העלה תמונת פרופיל'}
+              </Button>
+            </label>
+            {uploadError && (
+              <Typography color="error" sx={{ mt: 1 }}>
+                {uploadError}
+              </Typography>
+            )}
+          </Box>
         </Box>
       </Fade>
       {error && (
@@ -219,16 +276,15 @@ const Profile = () => {
             ) : (
               <List>
                 {courses.map((course) => (
-                  <ListItem
-                    key={course._id}
-                    button={false}
-                    component={Link}
-                    to={`/courses/${course._id}`}
-                    sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
-                  >
-                    <SchoolIcon color="primary" />
-                    <ListItemText primary={course.title} />
-                  </ListItem>
+              <ListItem
+                key={course._id}
+                component={Link}
+                to={`/courses/${course._id}`}
+                sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+              >
+                <SchoolIcon color="primary" />
+                <ListItemText primary={course.title} />
+              </ListItem>
                 ))}
               </List>
             )}

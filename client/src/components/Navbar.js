@@ -76,7 +76,7 @@ const Navbar = ({ user, onLogout }) => {
       <Divider />
       <List>
         {menuItems.map(({ text, icon, link }) => (
-          <ListItem button component={Link} to={link} key={text}>
+          <ListItem component={Link} to={link} key={text}>
             <ListItemIcon>{icon}</ListItemIcon>
             <ListItemText primary={text} />
           </ListItem>

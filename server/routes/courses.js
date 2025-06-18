@@ -29,6 +29,9 @@ router.put('/:id/deactivate', authenticate, courseController.deleteCourse);
 // Enrollment status route
 router.get('/:id/enrollment-status', authenticate, courseController.getEnrollmentStatus);
 
+// Enrolled courses for authenticated user
+router.get('/enrolled', authenticate, courseController.getEnrolledCourses);
+
 // Enroll user in course
 router.post('/:id/enroll', authenticate, courseController.enrollCourse);
 

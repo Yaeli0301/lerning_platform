@@ -1,5 +1,5 @@
 const User = require('../models/User');
-const upload = require('../middleware/uploadMiddleware');
+const uploadProfilePicture = require('../middleware/uploadProfilePictureMiddleware');
 const path = require('path');
 
 // Update user profile
@@ -31,9 +31,8 @@ exports.updateUserProfile = async (req, res) => {
   }
 };
 
-// Upload profile picture
 exports.uploadProfilePicture = [
-  upload.single('profilePicture'),
+  uploadProfilePicture.single('profilePicture'),
   async (req, res) => {
     try {
       const userId = req.params.id;
